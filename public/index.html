@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GDPR User Registry</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Cookie Consent Banner -->
+        <div id="cookieConsent" class="cookie-banner">
+            <div class="cookie-content">
+                <p>We use essential cookies to keep you logged in and secure. 
+                   <a href="#" onclick="showPrivacyPolicy()">View our privacy policy</a></p>
+                <button onclick="acceptCookies()" class="btn-primary">Accept</button>
+                <button onclick="rejectCookies()" class="btn-secondary">Reject</button>
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="nav-container">
+                <h1 class="logo">🔐 GDPR User Registry</h1>
+                <ul class="nav-menu">
+                    <li><a href="#" onclick="showHome()">Home</a></li>
+                    <li><a href="#" onclick="showPrivacyPolicy()">Privacy Policy</a></li>
+                    <li><a href="#" onclick="showTerms()">Terms</a></li>
+                    <li id="dashboardLink" style="display:none;">
+                        <a href="#" onclick="showDashboard()">Dashboard</a>
+                    </li>
+                    <li id="logoutLink" style="display:none;">
+                        <a href="#" onclick="logout()">Logout</a>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Home Section -->
+            <section id="homeSection" class="section active">
+                <div class="hero">
+                    <h2>Welcome to GDPR-Compliant User Registry</h2>
+                    <p>Your data rights are protected. Your privacy is our priority.</p>
+                </div>
+
+                <div class="features">
+                    <div class="feature">
+                        <h3>🛡️ Secure</h3>
+                        <p>Password hashing with bcrypt, HTTPS encryption, and security headers</p>
+                    </div>
+                    <div class="feature">
+                        <h3>📋 Transparent</h3>
+                        <p>Clear privacy policy, terms of service, and consent tracking</p>
+                    </div>
+                    <div class="feature">
+                        <h3>⚖️ Compliant</h3>
+                        <p>Full compliance with GDPR regulations and data subject rights</p>
+                    </div>
+                    <div class="feature">
+                        <h3>🔍 Auditable</h3>
+                        <p>Complete activity logs and consent history tracking</p>
+                    </div>
+                </div>
+
+                <div class="auth-section">
+                    <div class="auth-tabs">
+                        <button class="tab-btn active" onclick="showRegisterForm()">Register</button>
+                        <button class="tab-btn" onclick="showLoginForm()">Login</button>
+                    </div>
+
+                    <!-- Register Form -->
+                    <form id="registerForm" class="form-section active" onsubmit="handleRegister(event)">
+                        <h3>Create Account</h3>
+                        <div class="form-group">
+                            <label>First Name *</label>
+                            <input type="text" id="firstName" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Last Name *</label>
+                            <input type="text" id="lastName" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Email *</label>
+                            <input type="email" id="email" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Phone (Optional)</label>
+                            <input type="tel" id="phone">
+                        </div>
+                        <div class="form-group">
+                            <label>Password * (min. 8 characters)</label>
+                            <input type="password" id="password" required minlength="8">
+                        </div>
+
+                        <!-- GDPR Consent Checkboxes -->
+                        <div class="consent-section">
+                            <h4>Your Rights & Consents</h4>
+                            <div class="consent-item">
+                                <input type="checkbox" id="acceptTerms" required>
+                                <label for="acceptTerms">
+                                    I accept the <a href="#" onclick="showTerms()">Terms of Service</a>
+                                    (Required) *
+                                </label>
+                            </div>
+                            <div class="consent-item">
+                                <input type="checkbox" id="acceptPrivacy" required>
+                                <label for="acceptPrivacy">
+                                    I have read and accept the <a href="#" onclick="showPrivacyPolicy()">Privacy Policy</a>
+                                    (Required) *
+                                </label>
+                            </div>
+                            <div class="consent-item">
+                                <input type="checkbox" id="acceptMarketing">
+                                <label for="acceptMarketing">
+                                    I agree to receive newsletter updates (Optional)
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- GDPR Information Box -->
+                        <div class="info-box">
+                            <h4>Your GDPR Rights:</h4>
+                            <ul>
+                                <li>✓ Right to access your data</li>
+                                <li>✓ Right to correct inaccurate data</li>
+                                <li>✓ Right to delete your account</li>
+                                <li>✓ Right to export your data</li>
+                                <li>✓ Right to withdraw consent anytime</li>
+                            </ul>
+                        </div>
+
+                        <button type="submit" class="btn-primary">Register</button>
+                        <div id="registerMessage" class="message"></div>
+                    </form>
+
+                    <!-- Login Form -->
+                    <form id="loginForm" class="form-section" onsubmit="handleLogin(event)">
+                        <h3>Login</h3>
+                        <div class="form-group">
+                            <label>Email *</label>
+                            <input type="email" id="loginEmail" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Password *</label>
+                            <input type="password" id="loginPassword" required>
+                        </div>
+                        <button type="submit" class="btn-primary">Login</button>
+                        <div id="loginMessage" class="message"></div>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Privacy Policy Section -->
+            <section id="policySection" class="section">
+                <div id="policyContent" class="policy-content"></div>
+                <button onclick="showHome()" class="btn-secondary">Back</button>
+            </section>
+
+            <!-- Terms Section -->
+            <section id="termsSection" class="section">
+                <div id="termsContent" class="policy-content"></div>
+                <button onclick="showHome()" class="btn-secondary">Back</button>
+            </section>
+
+            <!-- Dashboard Section -->
+            <section id="dashboardSection" class="section">
+                <div class="dashboard-container">
+                    <h2>My Account Dashboard</h2>
+
+                    <!-- User Profile Section -->
+                    <div class="dashboard-card">
+                        <h3>👤 Profile Information</h3>
+                        <div id="profileInfo" class="profile-info"></div>
+                        <button onclick="showEditProfile()" class="btn-secondary">Edit Profile</button>
+                    </div>
+
+                    <!-- Edit Profile Form -->
+                    <div id="editProfileForm" class="dashboard-card" style="display:none;">
+                        <h3>Edit Profile</h3>
+                        <form onsubmit="handleProfileUpdate(event)">
+                            <div class="form-group">
+                                <label>First Name</label>
+                                <input type="text" id="editFirstName" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Last Name</label>
+                                <input type="text" id="editLastName" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Phone</label>
+                                <input type="tel" id="editPhone">
+                            </div>
+                            <button type="submit" class="btn-primary">Save Changes</button>
+                            <button type="button" onclick="hideEditProfile()" class="btn-secondary">Cancel</button>
+                        </form>
+                    </div>
+
+                    <!-- GDPR Data Rights Section -->
+                    <div class="dashboard-card">
+                        <h3>📊 Your Data Rights (GDPR)</h3>
+                        <p class="section-description">
+                            Under GDPR, you have several rights regarding your personal data:
+                        </p>
+                        <div class="rights-grid">
+                            <button onclick="downloadPersonalData()" class="btn-secondary gdpr-btn">
+                                📥 Export My Data (Article 20)
+                            </button>
+                            <button onclick="showDeletionRequest()" class="btn-warning gdpr-btn">
+                                🗑️ Request Deletion (Article 17)
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Deletion Request Section -->
+                    <div id="deletionRequestForm" class="dashboard-card alert-danger" style="display:none;">
+                        <h3>⚠️ Request Account Deletion</h3>
+                        <p class="warning-text">
+                            Deleting your account will permanently remove all your personal data after a 30-day grace period.
+                            During this period, you can cancel the deletion request.
+                        </p>
+                        <div class="form-group">
+                            <label>Reason for deletion (optional)</label>
+                            <textarea id="deletionReason" rows="4" 
+                                placeholder="Please tell us why you're leaving..."></textarea>
+                        </div>
+                        <div class="button-group">
+                            <button onclick="confirmDeletion()" class="btn-danger">
+                                Confirm Deletion Request
+                            </button>
+                            <button onclick="hideDeletionRequest()" class="btn-secondary">
+                                Cancel
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Activity Log Section -->
+                    <div class="dashboard-card">
+                        <h3>📝 Activity Log</h3>
+                        <p class="section-description">View your account activity and access history</p>
+                        <div id="activityLog" class="activity-log"></div>
+                        <button onclick="loadActivityLog()" class="btn-secondary">Refresh</button>
+                    </div>
+
+                    <!-- Consent History Section -->
+                    <div class="dashboard-card">
+                        <h3>✅ Consent History</h3>
+                        <p class="section-description">Track all your consent decisions</p>
+                        <div id="consentHistory" class="consent-history"></div>
+                        <button onclick="loadConsentHistory()" class="btn-secondary">Refresh</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2026 GDPR User Registry. All rights reserved. <a href="#" onclick="showPrivacyPolicy()">Privacy</a> | <a href="#" onclick="showTerms()">Terms</a></p>
+        </footer>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/main.js"></script>
+    <script src="js/ui.js"></script>
+</body>
+</html>
