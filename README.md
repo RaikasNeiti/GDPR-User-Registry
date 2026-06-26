@@ -1,5 +1,7 @@
 # GDPR-Compliant User Registry
 
+This repository is a thesis project demonstrating a GDPR-compliant user registry implementation.
+
 A comprehensive, production-ready user registry website that follows all GDPR (General Data Protection Regulation) guidelines, recommendations, and best practices.
 
 ## 🛡️ GDPR Compliance Features
