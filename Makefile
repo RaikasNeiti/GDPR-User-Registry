@@ -1,6 +1,7 @@
 .PHONY: help docker-build docker-up docker-down docker-logs docker-shell \
-	docker-restart docker-clean docker-prod docker-test docker-push \
-	docker-pull docker-status docker-backup docker-restore
+	docker-restart docker-clean docker-test docker-status docker-backup docker-restore
+
+DOCKER_COMPOSE ?= docker compose
 
 # Default target
 help:
@@ -10,152 +11,101 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  docker-build          Build Docker image"
-	@echo "  docker-up            Start containers (development)"
-	@echo "  docker-down          Stop containers"
-	@echo "  docker-logs          View container logs"
-	@echo "  docker-shell         Access container shell"
-	@echo "  docker-restart       Restart containers"
-	@echo "  docker-clean         Clean up all Docker resources"
-	@echo ""
-	@echo "Production:"
-	@echo "  docker-prod          Start containers (production)"
-	@echo "  docker-prod-down     Stop production containers"
-	@echo "  docker-prod-logs     View production logs"
+	@echo "  docker-up             Start containers"
+	@echo "  docker-down           Stop containers"
+	@echo "  docker-logs           View container logs"
+	@echo "  docker-shell          Access container shell"
+	@echo "  docker-restart        Restart containers"
+	@echo "  docker-clean          Clean up Docker resources"
 	@echo ""
 	@echo "Database:"
-	@echo "  docker-backup        Backup database"
-	@echo "  docker-restore       Restore database"
+	@echo "  docker-backup         Backup PostgreSQL database"
+	@echo "  docker-restore        Restore PostgreSQL database"
 	@echo ""
-	@echo "Testing & Deployment:"
-	@echo "  docker-test          Run tests in container"
-	@echo "  docker-push          Push image to registry"
-	@echo "  docker-pull          Pull image from registry"
-	@echo "  docker-status        Show container status"
+	@echo "Testing:"
+	@echo "  docker-test           Run tests in the app container"
+	@echo "  docker-status         Show container status"
 	@echo ""
 
 # Development Commands
 docker-build:
-	@echo "🔨 Building Docker image..."
-	docker-compose build
+	@echo "Building Docker image..."
+	$(DOCKER_COMPOSE) build
 
 docker-up:
-	@echo "🚀 Starting containers..."
-	docker-compose up -d
-	@echo "✅ Containers started"
-	@echo "🌐 Access at http://localhost:3000"
+	@echo "Starting containers..."
+	$(DOCKER_COMPOSE) up -d
+	@echo "Containers started"
+	@echo "Access at http://localhost:3000"
 
 docker-down:
-	@echo "🛑 Stopping containers..."
-	docker-compose down
-	@echo "✅ Containers stopped"
+	@echo "Stopping containers..."
+	$(DOCKER_COMPOSE) down
+	@echo "Containers stopped"
 
 docker-logs:
-	@echo "📋 Showing logs (Ctrl+C to exit)..."
-	docker-compose logs -f app
+	@echo "Showing logs (Ctrl+C to exit)..."
+	$(DOCKER_COMPOSE) logs -f app
 
 docker-shell:
-	@echo "🔌 Opening container shell..."
-	docker-compose exec app sh
+	@echo "Opening container shell..."
+	$(DOCKER_COMPOSE) exec app sh
 
 docker-restart:
-	@echo "🔄 Restarting containers..."
-	docker-compose restart
-	@echo "✅ Containers restarted"
+	@echo "Restarting containers..."
+	$(DOCKER_COMPOSE) restart
+	@echo "Containers restarted"
 
 docker-clean:
-	@echo "🧹 Cleaning up Docker resources..."
-	docker-compose down -v
+	@echo "Cleaning up Docker resources..."
+	$(DOCKER_COMPOSE) down -v
 	docker system prune -f
-	@echo "✅ Cleanup complete"
-
-# Production Commands
-docker-prod:
-	@echo "🚀 Starting production containers..."
-	docker-compose -f docker-compose.prod.yml up -d
-	@echo "✅ Production containers started"
-	@echo "🌐 Access at http://localhost:3000"
-
-docker-prod-down:
-	@echo "🛑 Stopping production containers..."
-	docker-compose -f docker-compose.prod.yml down
-	@echo "✅ Production containers stopped"
-
-docker-prod-logs:
-	@echo "📋 Showing production logs (Ctrl+C to exit)..."
-	docker-compose -f docker-compose.prod.yml logs -f app
-
-docker-prod-restart:
-	@echo "🔄 Restarting production containers..."
-	docker-compose -f docker-compose.prod.yml restart
-	@echo "✅ Production containers restarted"
+	@echo "Cleanup complete"
 
 # Database Commands
 docker-backup:
-	@echo "💾 Backing up database..."
+	@echo "Backing up PostgreSQL database..."
 	@mkdir -p backups
-	@docker-compose exec app cp data/users.db data/users.db.backup
-	@docker cp gdpr-user-registry:/app/data/users.db ./backups/users.db.$(shell date +%Y%m%d_%H%M%S)
-	@echo "✅ Database backed up to ./backups/"
+	$(DOCKER_COMPOSE) exec -T db pg_dump -U postgres gdpr > backups/gdpr-$$(date +%Y%m%d_%H%M%S).sql
+	@echo "Database backup created in ./backups/"
 
 docker-restore:
-	@echo "⚠️  This will restore the database from backup"
+	@echo "This will restore the database from a SQL backup"
 	@echo "Available backups:"
-	@ls -lh ./backups/users.db.* 2>/dev/null || echo "No backups found"
-	@echo "Specify backup file with: make docker-restore BACKUP=backups/users.db.20260525_120000"
+	@ls -1 ./backups/*.sql 2>/dev/null || echo "No backups found"
+	@echo "Specify backup file with: make docker-restore BACKUP=backups/gdpr-20260701_120000.sql"
 ifdef BACKUP
-	@echo "🔄 Restoring from $(BACKUP)..."
-	@docker cp $(BACKUP) gdpr-user-registry:/app/data/users.db
-	@docker-compose restart app
-	@echo "✅ Database restored"
+	@echo "Restoring from $(BACKUP)..."
+	$(DOCKER_COMPOSE) exec -T db psql -U postgres -d gdpr < $(BACKUP)
+	@echo "Database restored"
 else
-	@echo "⚠️  Specify backup file: make docker-restore BACKUP=backups/users.db.TIMESTAMP"
+	@echo "Specify backup file: make docker-restore BACKUP=backups/gdpr-20260701_120000.sql"
 endif
 
 # Status Commands
 docker-status:
-	@echo "📊 Container Status:"
-	@docker-compose ps
+	@echo "Container Status:"
+	$(DOCKER_COMPOSE) ps
 	@echo ""
-	@echo "📈 Resource Usage:"
-	@docker stats --no-stream
+	@echo "Resource Usage:"
+	docker stats --no-stream
 
 docker-stats:
-	@echo "📈 Real-time Resource Usage (Ctrl+C to exit):"
-	@docker stats
+	@echo "Real-time Resource Usage (Ctrl+C to exit):"
+	docker stats
 
-# Testing & Deployment
+# Testing
 docker-test:
-	@echo "🧪 Running tests..."
-	docker-compose exec app npm test
-
-docker-push:
-	@echo "📤 Pushing image to registry..."
-	@echo "Specify registry with: make docker-push REGISTRY=docker.io/username"
-ifdef REGISTRY
-	docker tag gdpr-registry:latest $(REGISTRY)/gdpr-registry:latest
-	docker push $(REGISTRY)/gdpr-registry:latest
-	@echo "✅ Image pushed to $(REGISTRY)"
-else
-	@echo "⚠️  Specify registry: make docker-push REGISTRY=docker.io/username"
-endif
-
-docker-pull:
-	@echo "📥 Pulling image from registry..."
-	@echo "Specify registry with: make docker-pull REGISTRY=docker.io/username"
-ifdef REGISTRY
-	docker pull $(REGISTRY)/gdpr-registry:latest
-	@echo "✅ Image pulled from $(REGISTRY)"
-else
-	@echo "⚠️  Specify registry: make docker-pull REGISTRY=docker.io/username"
-endif
+	@echo "Running tests..."
+	$(DOCKER_COMPOSE) exec app npm test
 
 # Utility Commands
 docker-version:
 	@echo "Docker version:"
 	@docker --version
 	@echo "Docker Compose version:"
-	@docker-compose --version
+	@docker compose version
 
 docker-info:
-	@echo "📊 Docker System Information:"
-	@docker system df
+	@echo "Docker System Information:"
+	docker system df

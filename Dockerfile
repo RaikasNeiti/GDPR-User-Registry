@@ -14,8 +14,6 @@ RUN apk add --no-cache \
 
 COPY . .
 
-RUN chmod +x ./vault/vault-entrypoint.sh || true
-
 EXPOSE 3000
 
 CMD ["sh", "-c", "node wait-for-postgres.js && node server.js"]

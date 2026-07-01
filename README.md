@@ -121,11 +121,16 @@ https://localhost:3000
 
 This repository includes a Docker Compose setup for the app and a PostgreSQL container.
 
-1. Ensure your .env file contains the required secrets and DATABASE_URL values.
+1. Ensure your `.env` file contains the required secrets and `DATABASE_URL` values.
 
 2. Build and start the containers:
    ```bash
    docker compose up --build
+   ```
+
+   or use the Makefile:
+   ```bash
+   make docker-up
    ```
 
 3. The app will be available at:
@@ -137,6 +142,27 @@ This repository includes a Docker Compose setup for the app and a PostgreSQL con
    ```bash
    docker compose down
    ```
+
+   or:
+   ```bash
+   make docker-down
+   ```
+
+## Docker convenience commands
+
+The project includes a `Makefile` with helpful Docker shortcuts:
+
+- `make docker-build`
+- `make docker-up`
+- `make docker-down`
+- `make docker-logs`
+- `make docker-shell`
+- `make docker-restart`
+- `make docker-clean`
+- `make docker-backup`
+- `make docker-restore`
+- `make docker-test`
+- `make docker-status`
 
 ## Run the tests
 
