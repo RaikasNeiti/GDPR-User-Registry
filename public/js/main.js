@@ -1,5 +1,6 @@
 // Globals
 window.currentUser = null;
+window.authToken = null;
 window.privacyPolicy = null;
 window.termsOfService = null;
 
@@ -10,8 +11,10 @@ document.addEventListener('DOMContentLoaded', () => {
     checkCookieConsent();
 
     const storedUser = localStorage.getItem('currentUser');
-    if (storedUser) {
+    const storedToken = localStorage.getItem('authToken');
+    if (storedUser && storedToken) {
         window.currentUser = JSON.parse(storedUser);
+        window.authToken = storedToken;
         document.getElementById('dashboardLink').style.display = 'block';
         document.getElementById('logoutLink').style.display = 'block';
         showDashboard();

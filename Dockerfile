@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ RUN chmod +x ./vault/vault-entrypoint.sh || true
 
 EXPOSE 3000
 
-CMD ["sh","-c","/app/vault/vault-entrypoint.sh"]
+CMD ["sh", "-c", "node wait-for-postgres.js && node server.js"]
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD node -e "require('https').get({hostname:'localhost',port:3000,path:'/',rejectUnauthorized:false}, (r) => {if (r.statusCode !== 200) process.exit(1)})"

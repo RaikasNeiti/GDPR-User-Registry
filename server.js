@@ -5,21 +5,30 @@ const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const validator = require('validator');
+const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
+const sodium = require('libsodium-wrappers');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const { execSync } = require('child_process');
 
 const app = express();
+app.disable('x-powered-by');
 const PORT = process.env.PORT || 3000;
+const VAULT_ADDR = process.env.VAULT_ADDR;
+const VAULT_TOKEN = process.env.VAULT_TOKEN;
+const VAULT_SECRET_PATH = process.env.VAULT_SECRET_PATH || 'secret/data/gdpr-app';
+let JWT_SECRET = process.env.JWT_SECRET;
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
+let DATA_ENCRYPTION_KEY_HEX = process.env.DATA_ENCRYPTION_KEY;
+const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10);
+const RATE_LIMIT_MAX_REQUESTS = parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10);
+const AUTH_RATE_LIMIT_WINDOW_MS = parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS || '900000', 10);
+const AUTH_RATE_LIMIT_MAX_REQUESTS = parseInt(process.env.AUTH_RATE_LIMIT_MAX_REQUESTS || '20', 10);
 const CERT_DIR = path.join(__dirname, 'certs');
 const CERT_PATH = process.env.SSL_CERT_PATH || path.join(CERT_DIR, 'cert.pem');
 const KEY_PATH = process.env.SSL_KEY_PATH || path.join(CERT_DIR, 'key.pem');
-
-// Middleware
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static('public'));
 
 // Security headers for GDPR compliance
 app.use((req, res, next) => {
@@ -27,14 +36,93 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  res.setHeader('Content-Security-Policy', "default-src 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src-attr 'unsafe-hashes' 'unsafe-inline'");
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
   next();
 });
 
-// Initialize Postgres connection (uses DATABASE_URL or PG* env vars)
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL
+// Middleware
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static('public'));
+
+const globalLimiter = rateLimit({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  max: RATE_LIMIT_MAX_REQUESTS,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' }
 });
+
+const authLimiter = rateLimit({
+  windowMs: AUTH_RATE_LIMIT_WINDOW_MS,
+  max: AUTH_RATE_LIMIT_MAX_REQUESTS,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many authentication requests, please try again later.' }
+});
+
+app.use(globalLimiter);
+
+let sodiumReady = false;
+
+const { Agent } = require('undici');
+
+async function loadVaultSecrets() {
+  if (!VAULT_ADDR || !VAULT_TOKEN) {
+    return;
+  }
+
+  const vaultUrl = `${VAULT_ADDR.replace(/\/$/, '')}/v1/${VAULT_SECRET_PATH.replace(/^\//, '')}`;
+  console.log(`Loading secrets from Vault path: ${VAULT_SECRET_PATH}`);
+
+  // Salli self-signed sertifikaatti vain jos eksplisiittisesti sallittu
+  const allowInsecure = process.env.VAULT_TLS_INSECURE === 'true';
+  const fetchOptions = {
+    method: 'GET',
+    headers: {
+      'X-Vault-Token': VAULT_TOKEN,
+      'Content-Type': 'application/json'
+    }
+  };
+
+  if (allowInsecure) {
+    fetchOptions.dispatcher = new Agent({
+      connect: { rejectUnauthorized: false }
+    });
+  }
+
+  const response = await fetch(vaultUrl, fetchOptions);
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Vault fetch failed: ${response.status} ${response.statusText} - ${text}`);
+  }
+
+  const vaultPayload = await response.json();
+  const vaultData = vaultPayload?.data?.data || vaultPayload?.data;
+  if (!vaultData) {
+    throw new Error('Vault response did not include secret data');
+  }
+
+  JWT_SECRET = JWT_SECRET || vaultData.JWT_SECRET || vaultData.jwt_secret || vaultData.jwtSecret;
+  DATA_ENCRYPTION_KEY_HEX = DATA_ENCRYPTION_KEY_HEX || vaultData.DATA_ENCRYPTION_KEY || vaultData.data_encryption_key || vaultData.dataEncryptionKey;
+
+  if (vaultData.DATABASE_URL && !process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = vaultData.DATABASE_URL;
+  }
+
+  console.log('Vault secrets loaded');
+}
+
+
+
+// Initialize Postgres connection (uses DATABASE_URL or PG* env vars)
+let pool;
 
 function convertPlaceholders(sql) {
   let i = 0;
@@ -64,17 +152,6 @@ const db = {
   }
 };
 
-pool.connect()
-  .then(client => {
-    client.release();
-    console.log('Connected to Postgres database');
-    initializeDatabase();
-  })
-  .catch(err => {
-    console.error('Error connecting to Postgres:', err);
-    process.exit(1);
-  });
-
 function initializeDatabase() {
   // Users table for Postgres
   db.run(`
@@ -82,7 +159,8 @@ function initializeDatabase() {
       id TEXT PRIMARY KEY,
       first_name TEXT NOT NULL,
       last_name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
+      email TEXT NOT NULL,
+      email_hash TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
       phone TEXT,
       created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -93,6 +171,14 @@ function initializeDatabase() {
       data_export_requested_at TIMESTAMPTZ NULL
     )
   `, [], (err) => { if (err) console.error('users table error:', err); });
+
+  db.run(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS email_hash TEXT;
+  `, [], (err) => { if (err) console.error('users alter email_hash error:', err); });
+
+  db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS users_email_hash_idx ON users(email_hash);
+  `, [], (err) => { if (err) console.error('users email_hash index error:', err); });
 
   // Consent management table
   db.run(`
@@ -170,7 +256,69 @@ function logConsent(userId, consentType, req) {
   );
 }
 
-// ==================== ROUTES ====================
+function createToken(user) {
+  return jwt.sign(
+    { id: user.id },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN }
+  );
+}
+
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers.authorization || req.headers.Authorization;
+  const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, payload) => {
+    if (err) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    req.user = payload;
+    next();
+  });
+}
+
+function getEncryptionKey() {
+  if (!sodiumReady) {
+    throw new Error('Sodium is not initialized');
+  }
+  const key = sodium.from_hex(DATA_ENCRYPTION_KEY_HEX);
+  if (key.length !== sodium.crypto_secretbox_KEYBYTES) {
+    throw new Error('DATA_ENCRYPTION_KEY must be a 32-byte hex string');
+  }
+  return key;
+}
+
+function encryptField(value) {
+  if (value === null || value === undefined) return null;
+  const key = getEncryptionKey();
+  const nonce = sodium.randombytes_buf(sodium.crypto_secretbox_NONCEBYTES);
+  const cipher = sodium.crypto_secretbox_easy(sodium.from_string(String(value)), nonce, key);
+  return sodium.to_hex(nonce) + sodium.to_hex(cipher);
+}
+
+function decryptField(encryptedValue) {
+  if (!encryptedValue) return null;
+  const key = getEncryptionKey();
+  const nonceHex = encryptedValue.slice(0, sodium.crypto_secretbox_NONCEBYTES * 2);
+  const cipherHex = encryptedValue.slice(sodium.crypto_secretbox_NONCEBYTES * 2);
+  const nonce = sodium.from_hex(nonceHex);
+  const cipher = sodium.from_hex(cipherHex);
+  try {
+    return sodium.to_string(sodium.crypto_secretbox_open_easy(cipher, nonce, key));
+  } catch (err) {
+    console.error('Decryption failed:', err);
+    return null;
+  }
+}
+
+function hashEmail(email) {
+  if (!email) return null;
+  const hash = sodium.crypto_generichash(32, sodium.from_string(email));
+  return sodium.to_hex(hash);
+}
 
 // Homepage
 app.get('/', (req, res) => {
@@ -290,68 +438,78 @@ app.get('/api/cookie-consent-info', (req, res) => {
 // ==================== AUTH ROUTES ====================
 
 // Register
-app.post('/api/auth/register', (req, res) => {
-  const { firstName, lastName, email, password, phone, acceptTerms, acceptPrivacy } = req.body;
+app.post('/api/auth/register', authLimiter, (req, res) => {
+  try {
+    const { firstName, lastName, email, password, phone, acceptTerms, acceptPrivacy } = req.body;
 
-  // Validation
-  if (!firstName || !lastName || !email || !password) {
-    return res.status(400).json({ error: 'Missing required fields' });
-  }
-
-  if (!validator.isEmail(email)) {
-    return res.status(400).json({ error: 'Invalid email format' });
-  }
-
-  if (password.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  }
-
-  if (!acceptTerms || !acceptPrivacy) {
-    return res.status(400).json({ error: 'You must accept terms and privacy policy' });
-  }
-
-  // Hash password
-  const salt = bcrypt.genSaltSync(10);
-  const passwordHash = bcrypt.hashSync(password, salt);
-  const userId = uuidv4();
-
-  db.run(
-    `INSERT INTO users (id, first_name, last_name, email, password_hash, phone)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [userId, firstName, lastName, email, passwordHash, phone || null],
-    function(err) {
-      if (err) {
-        if (err.code === '23505' || (err.message && err.message.toLowerCase().includes('duplicate'))) {
-          return res.status(400).json({ error: 'Email already registered' });
-        }
-        console.error('Registration error:', err);
-        return res.status(500).json({ error: 'Registration failed' });
-      }
-
-      // Log consents
-      logConsent(userId, 'terms', req);
-      logConsent(userId, 'privacy', req);
-      logAuditEvent(userId, 'ACCOUNT_CREATED', 'User registered', req);
-
-      res.status(201).json({ 
-        message: 'Registration successful',
-        userId: userId
-      });
+    if (!firstName || !lastName || !email || !password) {
+      return res.status(400).json({ error: 'Missing required fields' });
     }
-  );
+    if (!validator.isEmail(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+    if (!acceptTerms || !acceptPrivacy) {
+      return res.status(400).json({ error: 'You must accept terms and privacy policy' });
+    }
+
+    const salt = bcrypt.genSaltSync(10);
+    const passwordHash = bcrypt.hashSync(password, salt);
+    const userId = uuidv4();
+    const normalizedEmail = email.toLowerCase().trim();
+    const emailHash = hashEmail(normalizedEmail);
+    const encryptedEmail = encryptField(normalizedEmail);
+    const encryptedFirstName = encryptField(firstName);
+    const encryptedLastName = encryptField(lastName);
+    const encryptedPhone = encryptField(phone || null);
+
+    db.run(
+      `INSERT INTO users (id, first_name, last_name, email, email_hash, password_hash, phone)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [userId, encryptedFirstName, encryptedLastName, encryptedEmail, emailHash, passwordHash, encryptedPhone],
+      function(err) {
+        if (err) {
+          if (err.code === '23505' || (err.message && err.message.toLowerCase().includes('duplicate'))) {
+            return res.status(400).json({ error: 'Email already registered' });
+          }
+          console.error('Registration DB error:', err);
+          return res.status(500).json({ error: 'Registration failed' });
+        }
+
+        logConsent(userId, 'terms', req);
+        logConsent(userId, 'privacy', req);
+        logAuditEvent(userId, 'ACCOUNT_CREATED', 'User registered', req);
+
+        const token = createToken({ id: userId, email });
+        res.status(201).json({
+          message: 'Registration successful',
+          user: { id: userId, firstName, lastName, email, phone: phone || null },
+          token
+        });
+      }
+    );
+  } catch (err) {
+  console.error('Registration error:', err.message);
+  return res.status(500).json({ error: 'Registration failed' });
+  }
 });
 
 // Login
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', authLimiter, (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Missing credentials' });
   }
 
+  const normalizedEmail = email.toLowerCase().trim();
+  const emailHash = hashEmail(normalizedEmail);
+
   db.get(
-    `SELECT * FROM users WHERE email = ? AND is_active = TRUE`,
-    [email],
+    `SELECT * FROM users WHERE email_hash = ? AND is_active = TRUE`,
+    [emailHash],
     (err, user) => {
       if (err) {
         return res.status(500).json({ error: 'Login failed' });
@@ -370,14 +528,16 @@ app.post('/api/auth/login', (req, res) => {
       }
 
       logAuditEvent(user.id, 'LOGIN_SUCCESS', 'User logged in', req);
+      const token = createToken({ id: user.id });
 
       res.json({
         message: 'Login successful',
+        token,
         user: {
           id: user.id,
-          firstName: user.first_name,
-          lastName: user.last_name,
-          email: user.email
+          firstName: decryptField(user.first_name),
+          lastName: decryptField(user.last_name),
+          email: decryptField(user.email)
         }
       });
     }
@@ -387,8 +547,11 @@ app.post('/api/auth/login', (req, res) => {
 // ==================== USER DATA ROUTES ====================
 
 // Get user profile
-app.get('/api/user/:userId', (req, res) => {
+app.get('/api/user/:userId', authenticateToken, (req, res) => {
   const { userId } = req.params;
+  if (req.user.id !== userId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
 
   db.get(
     `SELECT id, first_name, last_name, email, phone, created_at, updated_at 
@@ -403,10 +566,10 @@ app.get('/api/user/:userId', (req, res) => {
 
       res.json({
         id: user.id,
-        firstName: user.first_name,
-        lastName: user.last_name,
-        email: user.email,
-        phone: user.phone,
+        firstName: decryptField(user.first_name),
+        lastName: decryptField(user.last_name),
+        email: decryptField(user.email),
+        phone: decryptField(user.phone),
         createdAt: user.created_at
       });
     }
@@ -414,18 +577,26 @@ app.get('/api/user/:userId', (req, res) => {
 });
 
 // Update user profile
-app.put('/api/user/:userId', (req, res) => {
+app.put('/api/user/:userId', authenticateToken, (req, res) => {
   const { userId } = req.params;
   const { firstName, lastName, phone } = req.body;
+
+  if (req.user.id !== userId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
 
   if (!firstName || !lastName) {
     return res.status(400).json({ error: 'Missing required fields' });
   }
 
+  const encryptedFirstName = encryptField(firstName);
+  const encryptedLastName = encryptField(lastName);
+  const encryptedPhone = encryptField(phone || null);
+
   db.run(
     `UPDATE users SET first_name = ?, last_name = ?, phone = ?, updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
-    [firstName, lastName, phone || null, userId],
+    [encryptedFirstName, encryptedLastName, encryptedPhone, userId],
     function(err) {
       if (err) {
         return res.status(500).json({ error: 'Update failed' });
@@ -441,8 +612,8 @@ app.put('/api/user/:userId', (req, res) => {
 // ==================== GDPR DATA RIGHTS ROUTES ====================
 
 // Data Subject Access Request (DSAR) - Export user data
-app.post('/api/dsar/export', (req, res) => {
-  const { userId } = req.body;
+app.post('/api/dsar/export', authenticateToken, (req, res) => {
+  const userId = req.user.id;
 
   db.get(
     `SELECT * FROM users WHERE id = ?`,
@@ -466,10 +637,10 @@ app.post('/api/dsar/export', (req, res) => {
                 exportDate: new Date().toISOString(),
                 userProfile: {
                   id: user.id,
-                  firstName: user.first_name,
-                  lastName: user.last_name,
-                  email: user.email,
-                  phone: user.phone,
+                  firstName: decryptField(user.first_name),
+                  lastName: decryptField(user.last_name),
+                  email: decryptField(user.email),
+                  phone: decryptField(user.phone),
                   createdAt: user.created_at,
                   updatedAt: user.updated_at,
                   isActive: user.is_active
@@ -491,8 +662,9 @@ app.post('/api/dsar/export', (req, res) => {
 });
 
 // Request account deletion (with 30-day grace period)
-app.post('/api/deletion/request', (req, res) => {
-  const { userId, reason } = req.body;
+app.post('/api/deletion/request', authenticateToken, (req, res) => {
+  const userId = req.user.id;
+  const { reason } = req.body;
 
   const deletionId = uuidv4();
   const scheduledDeletion = new Date();
@@ -528,8 +700,8 @@ app.post('/api/deletion/request', (req, res) => {
 });
 
 // Cancel deletion request
-app.post('/api/deletion/cancel', (req, res) => {
-  const { userId } = req.body;
+app.post('/api/deletion/cancel', authenticateToken, (req, res) => {
+  const userId = req.user.id;
 
   db.run(
     `UPDATE users SET deletion_requested_at = NULL, deletion_scheduled_for = NULL 
@@ -553,8 +725,8 @@ app.post('/api/deletion/cancel', (req, res) => {
 });
 
 // Immediate deletion (without grace period) - for testing
-app.post('/api/deletion/immediate', (req, res) => {
-  const { userId } = req.body;
+app.post('/api/deletion/immediate', authenticateToken, (req, res) => {
+  const userId = req.user.id;
 
   // Mark as inactive first (soft delete)
   db.run(
@@ -575,8 +747,11 @@ app.post('/api/deletion/immediate', (req, res) => {
 });
 
 // Get audit log (user can view their own activity)
-app.get('/api/audit-log/:userId', (req, res) => {
+app.get('/api/audit-log/:userId', authenticateToken, (req, res) => {
   const { userId } = req.params;
+  if (req.user.id !== userId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
 
   db.all(
     `SELECT action, description, ip_address, created_at FROM audit_log 
@@ -593,8 +768,11 @@ app.get('/api/audit-log/:userId', (req, res) => {
 });
 
 // Get consent history
-app.get('/api/consent-history/:userId', (req, res) => {
+app.get('/api/consent-history/:userId', authenticateToken, (req, res) => {
   const { userId } = req.params;
+  if (req.user.id !== userId) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
 
   db.all(
     `SELECT consent_type, given_at, version FROM consent_log 
@@ -639,14 +817,84 @@ function loadHttpsCredentials() {
   };
 }
 
-try {
+async function startServer() {
+
+  await sodium.ready;
+  sodiumReady = true;
+  console.log('Libsodium is initialized');
+
+  await loadVaultSecrets();
+
+  if (!JWT_SECRET) {
+    console.error('FATAL: JWT_SECRET environment variable is required');
+    process.exit(1);
+  }
+
+  if (!DATA_ENCRYPTION_KEY_HEX) {
+    console.error('FATAL: DATA_ENCRYPTION_KEY environment variable is required');
+    process.exit(1);
+  }
+
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL
+  });
+
+  await pool.connect()
+    .then(client => {
+      client.release();
+      console.log('Connected to Postgres database');
+      initializeDatabase();
+    })
+    .catch(err => {
+      console.error('Error connecting to Postgres:', err);
+      process.exit(1);
+    });
+
   const credentials = loadHttpsCredentials();
 
   https.createServer(credentials, app).listen(PORT, () => {
     console.log(`GDPR User Registry server running on https://localhost:${PORT}`);
     console.log('Environment: ' + (process.env.NODE_ENV || 'development'));
   });
-} catch (error) {
-  console.error('Failed to start HTTPS server:', error);
-  process.exit(1);
+}
+
+async function initForTests() {
+  
+  await sodium.ready;
+  sodiumReady = true;
+  
+
+  await loadVaultSecrets().catch((err) => {
+    console.log('Vault load failed:', err.message);
+  });
+
+  if (!JWT_SECRET) JWT_SECRET = process.env.JWT_SECRET;
+  if (!DATA_ENCRYPTION_KEY_HEX) DATA_ENCRYPTION_KEY_HEX = process.env.DATA_ENCRYPTION_KEY;
+
+  if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is required for tests');
+  }
+  if (!DATA_ENCRYPTION_KEY_HEX) {
+    throw new Error('DATA_ENCRYPTION_KEY is required for tests');
+  }
+
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL
+  });
+
+  const client = await pool.connect();
+  client.release();
+  initializeDatabase();
+
+  // Pieni viive jotta CREATE TABLE -kyselyt ehtivät valmistua
+  await new Promise(resolve => setTimeout(resolve, 500));
+}
+
+module.exports = { app, initForTests };
+
+if (require.main === module) {
+  startServer().catch(error => {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  });
 }

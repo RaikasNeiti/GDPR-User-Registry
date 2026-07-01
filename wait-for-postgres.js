@@ -2,7 +2,6 @@ const { Client } = require('pg');
 
 const connectionString = process.env.DATABASE_URL ||
   `postgres://${process.env.PGUSER || 'postgres'}:${process.env.PGPASSWORD || 'example'}@${process.env.PGHOST || 'db'}:${process.env.PGPORT || 5432}/${process.env.PGDATABASE || 'gdpr'}`;
-
 const maxAttempts = parseInt(process.env.DB_WAIT_ATTEMPTS || '60', 10);
 const delayMs = parseInt(process.env.DB_WAIT_DELAY_MS || '1000', 10);
 

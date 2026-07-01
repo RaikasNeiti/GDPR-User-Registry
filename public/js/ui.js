@@ -91,7 +91,9 @@ function showLoginForm() {
 
 function logout() {
     window.currentUser = null;
+    window.authToken = null;
     localStorage.removeItem('currentUser');
+    localStorage.removeItem('authToken');
     document.getElementById('dashboardLink').style.display = 'none';
     document.getElementById('logoutLink').style.display = 'none';
     document.getElementById('registerForm').reset();

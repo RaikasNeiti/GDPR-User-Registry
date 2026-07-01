@@ -1,358 +1,238 @@
-# GDPR-Compliant User Registry
+# GDPR User Registry
 
-This repository is a thesis project demonstrating a GDPR-compliant user registry implementation.
+This project is a GDPR-focused user registry application built with Node.js, Express, PostgreSQL, and a browser-based UI. It supports user registration, authentication, consent logging, activity tracking, and data export/deletion workflows.
 
-A comprehensive, production-ready user registry website that follows all GDPR (General Data Protection Regulation) guidelines, recommendations, and best practices.
+This repository was created as a thesis project to demonstrate a practical implementation of GDPR-compliant user data handling and privacy-focused application design.
 
-## 🛡️ GDPR Compliance Features
+## What this app does
 
-### Data Subject Rights (GDPR Articles)
-- **Article 15 - Right to Access**: Users can export all their personal data in machine-readable format
-- **Article 16 - Right to Rectification**: Users can update their personal information
-- **Article 17 - Right to Erasure**: Users can request account deletion with a 30-day grace period
-- **Article 18 - Right to Restrict Processing**: Future enhancement for data processing restrictions
-- **Article 20 - Right to Data Portability**: Data export in JSON format
-- **Article 21 - Right to Object**: Users can withdraw consent anytime
+- Register and log in users securely
+- Store password hashes with bcrypt
+- Log consent events and user activity
+- Support data export for GDPR access requests
+- Support deletion requests with a grace period
+- Run against PostgreSQL and optionally Docker
 
-### Privacy & Consent Management
-- ✅ **Explicit Consent**: Clear checkbox-based consent for terms and privacy policy
-- ✅ **Consent Logging**: All consents are logged with timestamp, IP, and user agent
-- ✅ **Cookie Consent Banner**: Compliant cookie consent with granular options
-- ✅ **Privacy Policy**: Comprehensive, legally-focused privacy policy
-- ✅ **Terms of Service**: Clear terms with GDPR-relevant clauses
+## Prerequisites
 
-### Data Security
-- 🔐 **Password Security**: bcrypt hashing with salt rounds (10 iterations)
-- 🔐 **HTTPS Ready**: Security headers (HSTS, CSP, X-Frame-Options, etc.)
-- 🔐 **Data Encryption**: All sensitive data encrypted in transit
-- 🔐 **No Plain-Text Storage**: Passwords never stored in plain text
+- Node.js 20 or newer
+- npm
+- PostgreSQL instance, or Docker Desktop with Docker Compose
+- A secure secret source for:
+  - DATA_ENCRYPTION_KEY
+  - JWT_SECRET
+  - DATABASE_URL
 
-### Accountability & Audit Trail
-- 📋 **Audit Logging**: Complete audit trail of all user actions
-- 📋 **IP Tracking**: IP address logging for security purposes
-- 📋 **User Agent Tracking**: Browser/device identification
-- 📋 **Timestamp Recording**: Precise timestamps for all events
-- 📋 **Activity History**: Users can view their own activity log
+## Quick start
 
-### Data Retention & Deletion
-- 🗑️ **Automatic Deletion**: 30-day grace period for account deletion
-- 🗑️ **Soft Delete**: User accounts marked as inactive before permanent deletion
-- 🗑️ **Audit Log Retention**: 12 months for compliance
-- 🗑️ **Consent History Retention**: 3 years for legal compliance
-- 🗑️ **Cancellable Deletion**: Users can cancel deletion requests within grace period
+1. Clone the repository
+   ```bash
+   git clone <repository-url>
+   cd GDPR-User-Registry
+   ```
 
-### Technical Compliance
-- ✓ Data minimization (only collect necessary data)
-- ✓ Purpose limitation (clear data usage statement)
-- ✓ Lawful basis documentation
-- ✓ Data Protection Impact Assessment (DPIA) ready
-- ✓ Privacy by design principles
-- ✓ Subprocessor accountability
+2. Install dependencies
+   ```bash
+   npm install
+   ```
 
-## 📋 Features
+3. Create your environment file
+   ```bash
+   cp .env.example .env
+   ```
 
-### User Management
-- User registration with validation
-- Secure login/logout
-- Profile management
-- Password hashing with bcrypt
+4. Configure your secrets and database connection in the .env file
 
-### Data Transparency
-- Downloadable privacy policy
-- Downloadable terms of service
-- Cookie consent management
-- Consent history tracking
+## Required environment variables
 
-### Data Control
-- View personal data
-- Export personal data
-- Update personal information
-- Request account deletion
-- Cancel deletion requests
-- View activity history
+The app requires the following values to start:
 
-### Security
-- SQL injection prevention (parameterized queries)
-- XSS protection (Content Security Policy)
-- CSRF protection ready
-- Secure session management
-- Rate limiting ready
-- HTTPS headers configured
+- DATA_ENCRYPTION_KEY: a 32-byte hex value
+- JWT_SECRET: a long random string
+- DATABASE_URL: your PostgreSQL connection string
 
-## 🚀 Getting Started
+You should provide these from your own secure secret store. The recommended approach is to use a vault.
 
-### Prerequisites
-- Node.js v14+ 
-- npm or yarn
+### Option A: Use HashiCorp Vault
 
-### Installation
+Set these variables in your environment or .env file:
 
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd GDPR-User-Registry
+```env
+VAULT_ADDR=https://your-vault-host:8200
+VAULT_TOKEN=your-vault-token
+VAULT_SECRET_PATH=secret/data/gdpr-app
 ```
 
-2. Install dependencies:
-```bash
-npm install
+Then store these keys in your Vault secret:
+
+```json
+{
+  "DATA_ENCRYPTION_KEY": "<32-byte-hex-value>",
+  "JWT_SECRET": "<random-secret>",
+  "DATABASE_URL": "postgres://user:password@host:5432/dbname"
+}
 ```
 
-3. Configure environment variables:
-```bash
-# Edit .env file with your settings
-cp .env.example .env
+### Option B: Use .env directly
+
+If you are not using Vault, add these directly to .env:
+
+```env
+DATA_ENCRYPTION_KEY=<32-byte-hex-value>
+JWT_SECRET=<random-secret>
+DATABASE_URL=postgres://user:password@host:5432/dbname
 ```
 
-4. Start the server:
+### Generate secure values
+
+Generate a strong encryption key:
+
+```bash
+node -e "const s=require('libsodium-wrappers'); s.ready.then(()=>console.log(Buffer.from(s.randombytes_buf(32)).toString('hex')));"
+```
+
+Generate a JWT secret:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"
+```
+
+## Run locally
+
+Start the application:
+
 ```bash
 npm start
 ```
 
 For development with auto-reload:
+
 ```bash
 npm run dev
 ```
 
-5. Open your browser and navigate to:
-```
+Then open:
+
+```text
 https://localhost:3000
 ```
 
-## 📁 Project Structure
+## Run with Docker
 
+This repository includes a Docker Compose setup for the app and a PostgreSQL container.
+
+1. Ensure your .env file contains the required secrets and DATABASE_URL values.
+
+2. Build and start the containers:
+   ```bash
+   docker compose up --build
+   ```
+
+3. The app will be available at:
+   ```text
+   https://localhost:3000
+   ```
+
+4. Stop the containers when you are done:
+   ```bash
+   docker compose down
+   ```
+
+## Run the tests
+
+Run the test suite with:
+
+```bash
+npm test
 ```
+
+The tests expect the same secret and database configuration to be available before startup.
+
+## Project structure
+
+```text
 GDPR-User-Registry/
-├── server.js              # Express server & API
-├── package.json          # Dependencies
-├── .env                  # Environment configuration
-├── .gitignore           # Git ignore rules
-├── data/                # SQLite database storage
-│   └── users.db        # User data (auto-created)
-└── public/
-    ├── index.html      # Main page
-    ├── app.js          # Frontend logic
-    └── style.css       # Styling
+├── server.js
+├── package.json
+├── docker-compose.yml
+├── Dockerfile
+├── .env.example
+├── public/
+├── tests/
+└── readfiles/
 ```
 
-## 🔌 API Endpoints
+## Database structure
 
-### Authentication
-- `POST /api/auth/register` - Register new user
-- `POST /api/auth/login` - Login user
+The app uses PostgreSQL and creates the following tables at startup:
 
-### User Data
-- `GET /api/user/:userId` - Get user profile
-- `PUT /api/user/:userId` - Update user profile
+### users
 
-### GDPR Rights
-- `POST /api/dsar/export` - Export personal data (Data Subject Access Request)
-- `POST /api/deletion/request` - Request account deletion (30-day grace period)
-- `POST /api/deletion/cancel` - Cancel deletion request
-- `POST /api/deletion/immediate` - Immediate deletion (for testing)
+| Column | Type | Description |
+| --- | --- | --- |
+| id | TEXT | Primary key for the user record |
+| first_name | TEXT | User first name |
+| last_name | TEXT | User last name |
+| email | TEXT | User email address |
+| email_hash | TEXT | Unique hash of the email address |
+| password_hash | TEXT | Hashed password |
+| phone | TEXT | Optional phone number |
+| created_at | TIMESTAMPTZ | Account creation timestamp |
+| updated_at | TIMESTAMPTZ | Last update timestamp |
+| is_active | BOOLEAN | Whether the account is active |
+| deletion_requested_at | TIMESTAMPTZ | Timestamp for deletion request |
+| deletion_scheduled_for | TIMESTAMPTZ | Scheduled deletion date |
+| data_export_requested_at | TIMESTAMPTZ | Timestamp for data export request |
 
-### Activity & Consent
-- `GET /api/audit-log/:userId` - Get user activity log
-- `GET /api/consent-history/:userId` - Get consent history
+### consent_log
 
-### Information
-- `GET /api/privacy-policy` - Get privacy policy
-- `GET /api/terms-of-service` - Get terms of service
-- `GET /api/cookie-consent-info` - Get cookie information
+| Column | Type | Description |
+| --- | --- | --- |
+| id | TEXT | Primary key |
+| user_id | TEXT | Linked user ID |
+| consent_type | TEXT | Type of consent recorded |
+| version | TEXT | Consent version |
+| given_at | TIMESTAMPTZ | Consent timestamp |
+| ip_address | TEXT | Client IP address |
+| user_agent | TEXT | Browser/user-agent string |
 
-## 🗄️ Database Schema
+### audit_log
 
-### Users Table
-```sql
-id                      TEXT PRIMARY KEY
-first_name             TEXT
-last_name              TEXT
-email                  TEXT UNIQUE
-password_hash          TEXT
-phone                  TEXT
-created_at             DATETIME
-updated_at             DATETIME
-is_active              BOOLEAN
-deletion_requested_at  DATETIME
-deletion_scheduled_for DATETIME
-data_export_requested_at DATETIME
-```
+| Column | Type | Description |
+| --- | --- | --- |
+| id | TEXT | Primary key |
+| user_id | TEXT | Linked user ID |
+| action | TEXT | Action performed |
+| description | TEXT | Human-readable action description |
+| ip_address | TEXT | Client IP address |
+| user_agent | TEXT | Browser/user-agent string |
+| created_at | TIMESTAMPTZ | Event timestamp |
 
-### Consent Log Table
-```sql
-id         TEXT PRIMARY KEY
-user_id    TEXT (Foreign Key)
-consent_type TEXT
-version    TEXT
-given_at   DATETIME
-ip_address TEXT
-user_agent TEXT
-```
+### deletion_requests
 
-### Audit Log Table
-```sql
-id        TEXT PRIMARY KEY
-user_id   TEXT (Foreign Key)
-action    TEXT
-description TEXT
-ip_address TEXT
-user_agent TEXT
-created_at DATETIME
-```
+| Column | Type | Description |
+| --- | --- | --- |
+| id | TEXT | Primary key |
+| user_id | TEXT | Linked user ID |
+| requested_at | TIMESTAMPTZ | Request timestamp |
+| scheduled_for | TIMESTAMPTZ | Planned deletion date |
+| status | TEXT | Current request status |
+| reason | TEXT | Reason for deletion |
 
-### Deletion Requests Table
-```sql
-id          TEXT PRIMARY KEY
-user_id     TEXT (Foreign Key)
-requested_at DATETIME
-scheduled_for DATETIME
-status      TEXT
-reason      TEXT
-```
+## API overview
 
-## 🔒 GDPR Best Practices Implemented
+Some of the main endpoints include:
 
-### Data Minimization
-- Only collect essential information (name, email, optional phone)
-- No unnecessary tracking
-- Clear purpose for each data point
+- POST /api/auth/register
+- POST /api/auth/login
+- POST /api/dsar/export
+- POST /api/deletion/request
+- POST /api/deletion/cancel
+- GET /api/audit-log/:userId
+- GET /api/consent-history/:userId
 
-### Purpose Limitation
-- Data used only for account management
-- Clear privacy policy explaining all uses
-- Consent required for non-essential processing
+## Notes
 
-### Storage Limitation
-- 12-month audit log retention
-- 3-year consent history retention
-- User data retained only while account active
-- 30-day grace period before permanent deletion
-
-### Integrity and Confidentiality
-- Encrypted password storage
-- HTTPS-ready security headers
-- No plain-text sensitive data
-- Regular audit trails
-
-### Accountability
-- Complete audit logs
-- Consent documentation
-- IP and user agent tracking
-- Timestamps on all actions
-- Deletion request tracking
-
-## 📝 Privacy Policy Highlights
-
-The privacy policy covers:
-- Data controller information
-- Types of data collected
-- Legal basis for processing
-- User rights and how to exercise them
-- Data retention periods
-- Security measures
-- International transfers
-- Contact information for privacy inquiries
-
-## 🚨 Testing GDPR Features
-
-### Register a Test Account
-1. Fill in registration form
-2. Accept terms and privacy policy
-3. Account created with consent logged
-
-### Export Personal Data
-1. Login to dashboard
-2. Click "📥 Export My Data"
-3. JSON file downloads with all your data, audit logs, and consents
-
-### Request Deletion
-1. Login to dashboard
-2. Click "🗑️ Request Deletion"
-3. Account marked for deletion
-4. 30-day grace period starts
-5. Can cancel anytime during this period
-
-### View Activity Log
-1. Login to dashboard
-2. Scroll to "📝 Activity Log"
-3. See all your account activities with timestamps
-
-### View Consent History
-1. Login to dashboard
-2. Scroll to "✅ Consent History"
-3. See when and what you consented to
-
-## 🔐 Security Notes
-
-### In Production, Implement:
-1. **HTTPS/SSL**: Use proper SSL certificates
-2. **CSRF Protection**: Add CSRF tokens to forms
-3. **Rate Limiting**: Prevent brute force attacks
-4. **Input Validation**: Enhanced validation and sanitization
-5. **Secrets Management**: Use environment variables for sensitive data
-6. **Database Encryption**: Encrypt database backups
-7. **Access Control**: Role-based access control (RBAC)
-8. **Backup & Recovery**: Regular encrypted backups
-9. **Incident Response**: Data breach notification procedures
-10. **Data Processing Agreement**: With hosting providers
-
-## 📚 Additional Resources
-
-### GDPR Articles Referenced
-- Article 4 - Definitions
-- Article 5 - Principles
-- Article 6 - Lawfulness of processing
-- Article 7 - Conditions for consent
-- Article 12-22 - Data subject rights
-- Article 25 - Data protection by design
-- Article 32 - Security of processing
-- Article 33-34 - Breach notification
-
-### Recommended Reading
-- [GDPR Text (EUR-Lex)](https://eur-lex.europa.eu/eli/reg/2016/679/oj)
-- [ICO GDPR Guidance](https://ico.org.uk/for-organisations/gdpr/)
-- [EDPB Guidelines](https://edpb.ec.europa.eu/our-work-tools/general-guidance_en)
-
-## 📋 Compliance Checklist
-
-- ✅ Privacy policy visible and accessible
-- ✅ Clear consent mechanism
-- ✅ Consent logging and tracking
-- ✅ User data export functionality
-- ✅ Account deletion functionality
-- ✅ Activity audit logs
-- ✅ Data retention policies
-- ✅ Security headers configured
-- ✅ Password hashing implemented
-- ✅ No plain-text sensitive data storage
-- ✅ IP and user agent logging
-- ✅ Cookie consent banner
-
-## 🤝 Contributing
-
-To contribute to this project:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
-
-## 📄 License
-
-This project is open source and available under the MIT License.
-
-## ⚖️ Legal Disclaimer
-
-This is a demonstration application. While it implements GDPR best practices, each organization must:
-- Conduct their own Data Protection Impact Assessment (DPIA)
-- Implement appropriate administrative and organizational measures
-- Ensure compliance with local data protection laws
-- Maintain proper records of processing activities
-- Have Data Processing Agreements with all service providers
-
-For legal advice, consult with your Data Protection Officer or legal team.
-
-
-**Last Updated**: June 2026
-**Version**: 1.0.1
-**GDPR Compliance Level**: Comprehensive ✓
-Thesis work for Metropolia
+- The app is intended for local development and demonstration use unless you harden it further for production.
+- For production, use a managed PostgreSQL service, TLS, proper certificate management, and a dedicated secrets manager.
+- If you use Docker on Windows or macOS, make sure your environment and networking settings support the compose setup you choose.

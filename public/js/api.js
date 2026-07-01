@@ -19,6 +19,15 @@ async function loadTermsOfService() {
     }
 }
 
+function getAuthToken() {
+    return window.authToken || localStorage.getItem('authToken');
+}
+
+function getAuthHeaders() {
+    const token = getAuthToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function handleRegister(event) {
     event.preventDefault();
     const firstName = document.getElementById('firstName').value;
@@ -41,8 +50,19 @@ async function handleRegister(event) {
         });
         const data = await response.json();
         if (response.ok) {
-            showMessage('registerMessage', 'Registration successful! Logging in...', 'success');
-            setTimeout(() => { document.getElementById('loginEmail').value = email; document.getElementById('loginPassword').value = password; handleLogin(new Event('submit')); }, 1000);
+            if (data.token && data.user) {
+                window.authToken = data.token;
+                window.currentUser = data.user;
+                localStorage.setItem('authToken', data.token);
+                localStorage.setItem('currentUser', JSON.stringify(data.user));
+                document.getElementById('dashboardLink').style.display = 'block';
+                document.getElementById('logoutLink').style.display = 'block';
+                showMessage('registerMessage', 'Registration successful! Redirecting to dashboard...', 'success');
+                setTimeout(() => { showDashboard(); }, 500);
+            } else {
+                showMessage('registerMessage', 'Registration successful! Logging in...', 'success');
+                setTimeout(() => { document.getElementById('loginEmail').value = email; document.getElementById('loginPassword').value = password; handleLogin(new Event('submit')); }, 1000);
+            }
         } else {
             showMessage('registerMessage', data.error || 'Registration failed', 'error');
         }
@@ -63,7 +83,9 @@ async function handleLogin(event) {
         const data = await response.json();
         if (response.ok) {
             window.currentUser = data.user;
+            window.authToken = data.token;
             localStorage.setItem('currentUser', JSON.stringify(window.currentUser));
+            localStorage.setItem('authToken', data.token);
             document.getElementById('dashboardLink').style.display = 'block';
             document.getElementById('logoutLink').style.display = 'block';
             showMessage('loginMessage', 'Login successful!', 'success');
@@ -79,7 +101,7 @@ async function handleLogin(event) {
 async function updateDashboardDisplay() {
     if (!window.currentUser) return;
     try {
-        const response = await fetch(`/api/user/${window.currentUser.id}`);
+        const response = await fetch(`/api/user/${window.currentUser.id}`, { headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
         const user = await response.json();
         const profileHTML = `
             <p><strong>Name:</strong> ${user.firstName} ${user.lastName}</p>
@@ -100,7 +122,7 @@ async function handleProfileUpdate(event) {
     const phone = document.getElementById('editPhone').value;
     try {
         const response = await fetch(`/api/user/${window.currentUser.id}`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ firstName, lastName, phone })
+            method: 'PUT', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, body: JSON.stringify({ firstName, lastName, phone })
         });
         if (response.ok) {
             window.currentUser = { ...window.currentUser, firstName, lastName };
@@ -113,7 +135,7 @@ async function handleProfileUpdate(event) {
 async function downloadPersonalData() {
     if (!window.currentUser) return;
     try {
-        const response = await fetch('/api/dsar/export', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: window.currentUser.id }) });
+        const response = await fetch('/api/dsar/export', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
         const data = await response.json();
         const dataStr = JSON.stringify(data, null, 2);
         const dataBlob = new Blob([dataStr], { type: 'application/json' });
@@ -129,7 +151,7 @@ async function confirmDeletion() {
     if (!confirmed) return;
     try {
         const reason = document.getElementById('deletionReason').value;
-        const response = await fetch('/api/deletion/request', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: window.currentUser.id, reason }) });
+        const response = await fetch('/api/deletion/request', { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeaders() }, body: JSON.stringify({ reason }) });
         const data = await response.json();
         if (response.ok) {
             showNotification(
@@ -147,7 +169,7 @@ async function confirmDeletion() {
 async function loadActivityLog() {
     if (!window.currentUser) return;
     try {
-        const response = await fetch(`/api/audit-log/${window.currentUser.id}`);
+        const response = await fetch(`/api/audit-log/${window.currentUser.id}`, { headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
         const logs = await response.json();
         let html = '';
         if (!logs || logs.length === 0) html = '<p style="text-align: center; color: #9ca3af;">No activity recorded yet</p>';
@@ -159,7 +181,7 @@ async function loadActivityLog() {
 async function loadConsentHistory() {
     if (!window.currentUser) return;
     try {
-        const response = await fetch(`/api/consent-history/${window.currentUser.id}`);
+        const response = await fetch(`/api/consent-history/${window.currentUser.id}`, { headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } });
         const consents = await response.json();
         let html = '';
         if (!consents || consents.length === 0) html = '<p style="text-align: center; color: #9ca3af;">No consent history</p>';
